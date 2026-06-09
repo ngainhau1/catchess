@@ -109,24 +109,33 @@ let pendingFenData = null;
 
 // Use setInterval to survive SPA navigations and stabilize animations
 setInterval(() => {
-    const data = getBoardFEN();
-    if (data && data.fen) {
-        if (pendingFenData && pendingFenData.fen === data.fen) {
-            // FEN is stable for 2 consecutive ticks
-            if (data.fen !== lastFen) {
-                console.log('[CatChess] Found new stable board state:', data.fen);
-                lastFen = data.fen;
-                
-                chrome.runtime.sendMessage({
-                    type: 'EVALUATE_FEN',
-                    fen: data.fen,
-                    lastMoveTarget: data.lastMove ? data.lastMove.targetSquare : null,
-                    lastMoveColor: data.lastMove ? data.lastMove.color : null
-                });
+    try {
+        const data = getBoardFEN();
+        if (data && data.fen) {
+            if (pendingFenData && pendingFenData.fen === data.fen) {
+                // FEN is stable for 2 consecutive ticks
+                if (data.fen !== lastFen) {
+                    console.log(`[Scraper] New stable state. FEN: ${data.fen}`);
+                    console.log(`[Scraper] Last Move Object:`, data.lastMove);
+                    lastFen = data.fen;
+                    
+                    chrome.runtime.sendMessage({
+                        type: 'EVALUATE_FEN',
+                        fen: data.fen,
+                        lastMoveTarget: data.lastMove ? data.lastMove.targetSquare : null,
+                        lastMoveColor: data.lastMove ? data.lastMove.color : null
+                    });
+                }
+            } else {
+                pendingFenData = data;
             }
         } else {
-            pendingFenData = data;
+            if (data && !data.fen) {
+                console.warn('[Scraper] Could not extract FEN from board. Missing pieces?');
+            }
         }
+    } catch (err) {
+        console.error('[Scraper] CRITICAL ERROR during board polling:', err);
     }
 }, 300);
 

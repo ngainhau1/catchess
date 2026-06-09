@@ -30,36 +30,39 @@ async function setupOffscreenDocument(path) {
 
 // Forward messages from content script to offscreen document
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === 'EVALUATE_FEN') {
-    setupOffscreenDocument('offscreen.html').then(() => {
-      chrome.runtime.sendMessage({
-        target: 'offscreen',
-        type: 'EVALUATE_FEN',
-        fen: message.fen
+  try {
+    if (message.type === 'EVALUATE_FEN') {
+      setupOffscreenDocument('offscreen.html').then(() => {
+        chrome.runtime.sendMessage({
+          target: 'offscreen',
+          type: 'EVALUATE_FEN',
+          fen: message.fen
+        });
       });
-    });
-    return true; // async response not strictly needed here if offscreen broadcasts back
-  }
+      return true; // async response not strictly needed here if offscreen broadcasts back
+    }
 
-  if (message.target === 'content') {
-    // Forward from offscreen to content script
-    // We send it to the active tab
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (tabs[0]) {
-        chrome.tabs.sendMessage(tabs[0].id, message);
-      }
-    });
-  }
-
-  // Handle offscreen requesting initial engine level
-  if (message.type === 'REQUEST_ENGINE_LEVEL') {
-    chrome.storage.sync.get({ engineLevel: 20 }, (items) => {
-      chrome.runtime.sendMessage({
-        target: 'offscreen',
-        type: 'UPDATE_ENGINE_LEVEL',
-        level: items.engineLevel
+    if (message.target === 'content') {
+      // Forward from offscreen to content script
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs[0]) {
+          chrome.tabs.sendMessage(tabs[0].id, message);
+        }
       });
-    });
+    }
+
+    // Handle offscreen requesting initial engine level
+    if (message.type === 'REQUEST_ENGINE_LEVEL') {
+      chrome.storage.sync.get({ engineLevel: 20 }, (items) => {
+        chrome.runtime.sendMessage({
+          target: 'offscreen',
+          type: 'UPDATE_ENGINE_LEVEL',
+          level: items.engineLevel
+        });
+      });
+    }
+  } catch (err) {
+    console.error('[Background] Error processing message:', err);
   }
 });
 

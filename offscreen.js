@@ -12,8 +12,12 @@ let currentColor = null;
 let previousScore = 0; // centipawns
 let currentScore = 0; // centipawns
 
+let evalTimeoutId = null;
+
 stockfish.onmessage = function(event) {
     const line = event.data;
+    // Uncomment for extreme verbosity, but it might spam the console
+    // console.log('[Engine Raw]', line);
     
     const scoreMatch = line.match(/info depth (\d+).*score (cp|mate) (-?\d+)/);
     if (scoreMatch) {
@@ -43,6 +47,14 @@ stockfish.onmessage = function(event) {
     }
 
     if (line && line.startsWith('bestmove')) {
+        console.log('[Engine] Received bestmove:', line);
+        
+        // Clear the timeout since the engine responded successfully
+        if (evalTimeoutId) {
+            clearTimeout(evalTimeoutId);
+            evalTimeoutId = null;
+        }
+
         const match = line.match(/bestmove\s+([a-h][1-8][a-h][1-8][qrbn]?)/);
         if (match && match[1]) {
             chrome.runtime.sendMessage({
@@ -84,17 +96,35 @@ stockfish.onmessage = function(event) {
 };
 
 chrome.runtime.onMessage.addListener((message) => {
-    if (message.target === 'offscreen') {
-        if (message.type === 'EVALUATE_FEN') {
-            currentFen = message.fen;
-            currentTarget = message.lastMoveTarget;
-            currentColor = message.lastMoveColor;
-            
-            stockfish.postMessage('position fen ' + message.fen);
-            stockfish.postMessage('go depth 14');
-        } else if (message.type === 'UPDATE_ENGINE_LEVEL') {
-            stockfish.postMessage(`setoption name Skill Level value ${message.level}`);
+    try {
+        if (message.target === 'offscreen') {
+            if (message.type === 'EVALUATE_FEN') {
+                console.log('[Engine] Received FEN to evaluate:', message.fen);
+                currentFen = message.fen;
+                currentTarget = message.lastMoveTarget;
+                currentColor = message.lastMoveColor;
+                
+                stockfish.postMessage('position fen ' + message.fen);
+                stockfish.postMessage('go depth 14');
+
+                // Set a timeout to catch stuck engine (e.g. invalid FEN)
+                if (evalTimeoutId) clearTimeout(evalTimeoutId);
+                evalTimeoutId = setTimeout(() => {
+                    console.error(`[Engine] Timeout! Stockfish did not return 'bestmove' for FEN: ${currentFen}`);
+                    console.warn('[Engine] Attempting to reset engine state...');
+                    stockfish.postMessage('stop');
+                    stockfish.postMessage('ucinewgame');
+                    // Reset timeout id
+                    evalTimeoutId = null;
+                }, 2000);
+
+            } else if (message.type === 'UPDATE_ENGINE_LEVEL') {
+                console.log('[Engine] Updating Skill Level to:', message.level);
+                stockfish.postMessage(`setoption name Skill Level value ${message.level}`);
+            }
         }
+    } catch (err) {
+        console.error('[Engine] CRITICAL ERROR during message handling:', err);
     }
 });
 
