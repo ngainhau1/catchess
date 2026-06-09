@@ -65,7 +65,44 @@ function getBoardFEN() {
     // For simplicity, we'll default to white, but in a real match, we should read the clock or last move.
     // Let's assume white. A more advanced version would parse the moves list.
     const fen = fenRows.join('/') + ' w KQkq - 0 1';
-    return fen;
+    return { fen, pieces };
+}
+
+function getLastMoveInfo(pieces) {
+    // Chess.com adds .highlight class to start and end squares.
+    // The end square of the last move usually has a piece on it.
+    const highlights = document.querySelectorAll('.highlight');
+    if (!highlights || highlights.length === 0) return null;
+
+    let targetSquare = null;
+    let color = null; // 'w' or 'b'
+
+    // Look for a piece that is on a highlighted square
+    pieces.forEach(piece => {
+        const squareMatch = piece.className.match(/square-(\d)(\d)/);
+        if (!squareMatch) return;
+        
+        const squareClass = `square-${squareMatch[1]}${squareMatch[2]}`;
+        
+        // Check if any highlight has this squareClass
+        let isHighlighted = false;
+        highlights.forEach(h => {
+            if (h.className.includes(squareClass)) isHighlighted = true;
+        });
+
+        if (isHighlighted) {
+            const typeMatch = piece.className.match(/(w|b)(p|n|b|r|q|k)/);
+            if (typeMatch) {
+                color = typeMatch[1];
+                // Convert 11-88 to a1-h8
+                const file = String.fromCharCode('a'.charCodeAt(0) + parseInt(squareMatch[1], 10) - 1);
+                const rank = squareMatch[2];
+                targetSquare = file + rank;
+            }
+        }
+    });
+
+    return targetSquare ? { targetSquare, color } : null;
 }
 
 let lastFen = '';
@@ -73,13 +110,18 @@ let lastFen = '';
 // Use setInterval instead of MutationObserver to survive SPA navigations
 // and board element replacements.
 setInterval(() => {
-    const fen = getBoardFEN();
-    if (fen && fen !== lastFen) {
-        console.log('[CatChess] Found new board state:', fen);
-        lastFen = fen;
+    const data = getBoardFEN();
+    if (data && data.fen && data.fen !== lastFen) {
+        console.log('[CatChess] Found new board state:', data.fen);
+        lastFen = data.fen;
+        
+        const lastMove = getLastMoveInfo(data.pieces);
+        
         chrome.runtime.sendMessage({
             type: 'EVALUATE_FEN',
-            fen: fen
+            fen: data.fen,
+            lastMoveTarget: lastMove ? lastMove.targetSquare : null,
+            lastMoveColor: lastMove ? lastMove.color : null
         });
     }
 }, 500);
