@@ -1,15 +1,23 @@
 // scraper.js
 
 /**
- * Parses the Chess.com board and generates a basic FEN string.
- * Note: Castling rights and en passant are omitted for simplicity,
- * which might cause engine to miss castling moves.
+ * Detects which color the user is playing by checking board orientation.
+ * Chess.com flips the board when the user plays Black.
  */
-function getBoardFEN() {
+function getUserColor() {
+    const board = document.querySelector('wc-chess-board');
+    if (!board) return 'w';
+    return board.classList.contains('flipped') ? 'b' : 'w';
+}
+
+/**
+ * Parses the Chess.com board and generates a FEN placement string.
+ * Returns only the piece placement (no turn/castling), plus the raw piece NodeList.
+ */
+function getBoardPlacement() {
     const pieces = document.querySelectorAll('.piece');
     if (!pieces || pieces.length === 0) return null;
 
-    // Initialize 8x8 empty board
     const board = Array(8).fill(null).map(() => Array(8).fill(''));
 
     pieces.forEach(piece => {
@@ -17,7 +25,6 @@ function getBoardFEN() {
         let file = -1;
         let rank = -1;
 
-        // Extract piece type (wp, bn, wq, etc.)
         const typeMatch = piece.className.match(/(w|b)(p|n|b|r|q|k)/);
         if (typeMatch) {
             const color = typeMatch[1];
@@ -25,12 +32,10 @@ function getBoardFEN() {
             pieceType = color === 'w' ? pType.toUpperCase() : pType.toLowerCase();
         }
 
-        // Extract position (square-11 to square-88)
-        // 11 = a1 (file 1, rank 1), 88 = h8 (file 8, rank 8)
         const squareMatch = piece.className.match(/square-(\d)(\d)/);
         if (squareMatch) {
-            file = parseInt(squareMatch[1], 10) - 1; // 0-7
-            rank = parseInt(squareMatch[2], 10) - 1; // 0-7
+            file = parseInt(squareMatch[1], 10) - 1;
+            rank = parseInt(squareMatch[2], 10) - 1;
         }
 
         if (pieceType && file >= 0 && rank >= 0) {
@@ -38,9 +43,7 @@ function getBoardFEN() {
         }
     });
 
-    // Build FEN string for piece placement
     let fenRows = [];
-    // FEN starts from rank 8 down to rank 1
     for (let r = 7; r >= 0; r--) {
         let emptyCount = 0;
         let rowStr = '';
@@ -61,37 +64,40 @@ function getBoardFEN() {
         fenRows.push(rowStr);
     }
 
-    const placement = fenRows.join('/');
-    return { placement, pieces };
+    return { placement: fenRows.join('/'), pieces, board };
 }
 
+/**
+ * Detects the last move by looking at Chess.com's highlight squares.
+ * Chess.com uses elements with class "highlight" to mark the source and
+ * destination of the most recent move.
+ */
 function getLastMoveInfo(pieces) {
-    // Chess.com adds .highlight class to start and end squares.
-    // The end square of the last move usually has a piece on it.
     const highlights = document.querySelectorAll('.highlight');
     if (!highlights || highlights.length === 0) return null;
 
-    let targetSquare = null;
-    let color = null; // 'w' or 'b'
+    // Collect all highlighted square coordinates
+    const highlightedSquares = new Set();
+    highlights.forEach(h => {
+        const m = h.className.match(/square-(\d)(\d)/);
+        if (m) highlightedSquares.add(`${m[1]}${m[2]}`);
+    });
 
-    // Look for a piece that is on a highlighted square
+    if (highlightedSquares.size === 0) return null;
+
+    // Find the piece sitting on a highlighted square — that's the destination
+    let targetSquare = null;
+    let color = null;
+
     pieces.forEach(piece => {
         const squareMatch = piece.className.match(/square-(\d)(\d)/);
         if (!squareMatch) return;
-        
-        const squareClass = `square-${squareMatch[1]}${squareMatch[2]}`;
-        
-        // Check if any highlight has this squareClass
-        let isHighlighted = false;
-        highlights.forEach(h => {
-            if (h.className.includes(squareClass)) isHighlighted = true;
-        });
+        const sq = `${squareMatch[1]}${squareMatch[2]}`;
 
-        if (isHighlighted) {
+        if (highlightedSquares.has(sq)) {
             const typeMatch = piece.className.match(/(w|b)(p|n|b|r|q|k)/);
             if (typeMatch) {
                 color = typeMatch[1];
-                // Convert 11-88 to a1-h8
                 const file = String.fromCharCode('a'.charCodeAt(0) + parseInt(squareMatch[1], 10) - 1);
                 const rank = squareMatch[2];
                 targetSquare = file + rank;
@@ -102,59 +108,80 @@ function getLastMoveInfo(pieces) {
     return targetSquare ? { targetSquare, color } : null;
 }
 
-let lastPlacement = '';
-let lastFen = '';
-let pendingPlacement = null;
-let currentActiveColor = 'w';
-let currentLastMove = null;
+/**
+ * Infer castling rights from piece positions on the board array.
+ */
+function inferCastling(board) {
+    let castling = '';
+    // White King on e1 (file 4, rank 0)
+    if (board[0][4] === 'K') {
+        if (board[0][7] === 'R') castling += 'K'; // h1 rook
+        if (board[0][0] === 'R') castling += 'Q'; // a1 rook
+    }
+    // Black King on e8 (file 4, rank 7)
+    if (board[7][4] === 'k') {
+        if (board[7][7] === 'r') castling += 'k'; // h8 rook
+        if (board[7][0] === 'r') castling += 'q'; // a8 rook
+    }
+    return castling || '-';
+}
 
-// Use setInterval to survive SPA navigations and stabilize animations
+// ─── State ────────────────────────────────────────────────────
+let lastPlacement = '';
+let pendingPlacement = null;
+
+// ─── Main polling loop ───────────────────────────────────────
 setInterval(() => {
     try {
-        const data = getBoardFEN();
-        if (data && data.placement) {
-            if (pendingPlacement === data.placement) {
-                // Piece placement is stable for 2 consecutive ticks
-                if (data.placement !== lastPlacement) {
-                    console.log(`[Scraper] Board placement changed! Recalculating turn.`);
-                    
-                    const lastMove = getLastMoveInfo(data.pieces);
-                    if (lastMove) {
-                        currentActiveColor = lastMove.color === 'w' ? 'b' : 'w';
-                        currentLastMove = lastMove;
-                    } else if (data.placement === 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR') {
-                        currentActiveColor = 'w';
-                        currentLastMove = null;
-                    }
-                    
-                    const fen = data.placement + ` ${currentActiveColor} KQkq - 0 1`;
-                    console.log(`[Scraper] New stable state. FEN: ${fen}`);
-                    console.log(`[Scraper] Last Move Object:`, currentLastMove);
-                    
-                    lastPlacement = data.placement;
-                    lastFen = fen;
-                    
-                    chrome.runtime.sendMessage({
-                        type: 'EVALUATE_FEN',
-                        fen: fen,
-                        lastMoveTarget: currentLastMove ? currentLastMove.targetSquare : null,
-                        lastMoveColor: currentLastMove ? currentLastMove.color : null
-                    });
-                }
-            } else {
-                pendingPlacement = data.placement;
-            }
+        const data = getBoardPlacement();
+        if (!data || !data.placement) return;
+
+        // Debounce: require two identical reads in a row
+        if (pendingPlacement !== data.placement) {
+            pendingPlacement = data.placement;
+            return;
+        }
+
+        // Only fire when the placement actually changes
+        if (data.placement === lastPlacement) return;
+
+        const lastMove = getLastMoveInfo(data.pieces);
+
+        // Determine active color (whose turn it is)
+        let activeColor = 'w';
+        if (lastMove) {
+            activeColor = lastMove.color === 'w' ? 'b' : 'w';
+        } else if (data.placement === 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR') {
+            activeColor = 'w'; // starting position
+        }
+
+        const castling = inferCastling(data.board);
+        const fen = `${data.placement} ${activeColor} ${castling} - 0 1`;
+
+        const userColor = getUserColor();
+
+        console.log(`[Scraper] Placement changed. FEN: ${fen}`);
+        console.log(`[Scraper] User plays: ${userColor}, Active turn: ${activeColor}, Last move:`, lastMove);
+
+        lastPlacement = data.placement;
+
+        // Only ask Stockfish to evaluate when it is the USER's turn
+        if (activeColor === userColor) {
+            chrome.runtime.sendMessage({
+                type: 'EVALUATE_FEN',
+                fen: fen,
+                lastMoveTarget: lastMove ? lastMove.targetSquare : null,
+                lastMoveColor: lastMove ? lastMove.color : null
+            });
         } else {
-            if (data && !data.placement) {
-                console.warn('[Scraper] Could not extract placement from board. Missing pieces?');
-            }
+            console.log(`[Scraper] Skipping evaluation — it is the opponent's turn.`);
         }
     } catch (err) {
-        console.error('[Scraper] CRITICAL ERROR during board polling:', err);
+        console.error('[Scraper] CRITICAL ERROR:', err);
     }
 }, 300);
 
-// Keyboard Shortcuts
+// ─── Keyboard Shortcuts ──────────────────────────────────────
 document.addEventListener('keydown', (e) => {
     if (e.altKey) {
         if (e.key.toLowerCase() === 'a') toggleSetting('showArrow', 'Arrows');
@@ -164,7 +191,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 function toggleSetting(key, name) {
-    if (!chrome.storage) return; // Fail gracefully
+    if (!chrome.storage) return;
     chrome.storage.sync.get({[key]: true}, (items) => {
         const newValue = !items[key];
         chrome.storage.sync.set({[key]: newValue}, () => {
@@ -183,7 +210,7 @@ function showToast(msg) {
     }
     toast.textContent = msg;
     toast.style.opacity = '1';
-    
+
     clearTimeout(toast.timeoutId);
     toast.timeoutId = setTimeout(() => {
         toast.style.opacity = '0';
