@@ -26,6 +26,12 @@ stockfish.onmessage = function(event) {
             // Mate in X is worth a lot of centipawns
             scoreVal = val > 0 ? 30000 - val : -30000 - val;
         }
+
+        // Normalize score to White's perspective
+        if (currentFen.includes(' b ')) {
+            scoreVal = -scoreVal;
+        }
+
         currentScore = scoreVal;
 
         // Send eval update

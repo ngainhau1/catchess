@@ -61,11 +61,10 @@ function getBoardFEN() {
         fenRows.push(rowStr);
     }
 
-    // Guess active color: check if bottom player is active, or just check move list
-    // For simplicity, we'll default to white, but in a real match, we should read the clock or last move.
-    // Let's assume white. A more advanced version would parse the moves list.
-    const fen = fenRows.join('/') + ' w KQkq - 0 1';
-    return { fen, pieces };
+    const lastMove = getLastMoveInfo(pieces);
+    const activeColor = lastMove ? (lastMove.color === 'w' ? 'b' : 'w') : 'w';
+    const fen = fenRows.join('/') + ` ${activeColor} KQkq - 0 1`;
+    return { fen, pieces, lastMove };
 }
 
 function getLastMoveInfo(pieces) {
@@ -118,13 +117,11 @@ setInterval(() => {
                 console.log('[CatChess] Found new stable board state:', data.fen);
                 lastFen = data.fen;
                 
-                const lastMove = getLastMoveInfo(data.pieces);
-                
                 chrome.runtime.sendMessage({
                     type: 'EVALUATE_FEN',
                     fen: data.fen,
-                    lastMoveTarget: lastMove ? lastMove.targetSquare : null,
-                    lastMoveColor: lastMove ? lastMove.color : null
+                    lastMoveTarget: data.lastMove ? data.lastMove.targetSquare : null,
+                    lastMoveColor: data.lastMove ? data.lastMove.color : null
                 });
             }
         } else {
