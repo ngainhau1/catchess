@@ -40,7 +40,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     return true; // async response not strictly needed here if offscreen broadcasts back
   }
-  
+
   if (message.target === 'content') {
     // Forward from offscreen to content script
     // We send it to the active tab
@@ -48,6 +48,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (tabs[0]) {
         chrome.tabs.sendMessage(tabs[0].id, message);
       }
+    });
+  }
+
+  // Handle offscreen requesting initial engine level
+  if (message.type === 'REQUEST_ENGINE_LEVEL') {
+    chrome.storage.sync.get({ engineLevel: 20 }, (items) => {
+      chrome.runtime.sendMessage({
+        target: 'offscreen',
+        type: 'UPDATE_ENGINE_LEVEL',
+        level: items.engineLevel
+      });
+    });
+  }
+});
+
+// Listen for storage changes and forward to offscreen
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'sync' && changes.engineLevel) {
+    chrome.runtime.sendMessage({
+      target: 'offscreen',
+      type: 'UPDATE_ENGINE_LEVEL',
+      level: changes.engineLevel.newValue
     });
   }
 });

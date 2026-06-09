@@ -84,27 +84,19 @@ stockfish.onmessage = function(event) {
 };
 
 chrome.runtime.onMessage.addListener((message) => {
-    if (message.target === 'offscreen' && message.type === 'EVALUATE_FEN') {
-        currentFen = message.fen;
-        currentTarget = message.lastMoveTarget;
-        currentColor = message.lastMoveColor;
-        
-        stockfish.postMessage('position fen ' + message.fen);
-        stockfish.postMessage('go depth 14');
+    if (message.target === 'offscreen') {
+        if (message.type === 'EVALUATE_FEN') {
+            currentFen = message.fen;
+            currentTarget = message.lastMoveTarget;
+            currentColor = message.lastMoveColor;
+            
+            stockfish.postMessage('position fen ' + message.fen);
+            stockfish.postMessage('go depth 14');
+        } else if (message.type === 'UPDATE_ENGINE_LEVEL') {
+            stockfish.postMessage(`setoption name Skill Level value ${message.level}`);
+        }
     }
 });
 
-// Setup engine level
-function updateEngineLevel() {
-    chrome.storage.sync.get({engineLevel: 20}, (items) => {
-        stockfish.postMessage(`setoption name Skill Level value ${items.engineLevel}`);
-    });
-}
-
-chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'sync' && changes.engineLevel) {
-        updateEngineLevel();
-    }
-});
-
-updateEngineLevel();
+// Request initial engine level from background
+chrome.runtime.sendMessage({ type: 'REQUEST_ENGINE_LEVEL' });
