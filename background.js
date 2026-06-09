@@ -1,0 +1,53 @@
+// background.js
+
+let creating; // A global promise to avoid concurrency issues
+async function setupOffscreenDocument(path) {
+  // Check all windows controlled by the service worker to see if one
+  // of them is the offscreen document with the given path
+  const offscreenUrl = chrome.runtime.getURL(path);
+  const existingContexts = await chrome.runtime.getContexts({
+    contextTypes: ['OFFSCREEN_DOCUMENT'],
+    documentUrls: [offscreenUrl]
+  });
+
+  if (existingContexts.length > 0) {
+    return;
+  }
+
+  // create offscreen document
+  if (creating) {
+    await creating;
+  } else {
+    creating = chrome.offscreen.createDocument({
+      url: path,
+      reasons: ['WORKERS'],
+      justification: 'Running Stockfish WebAssembly in a Web Worker'
+    });
+    await creating;
+    creating = null;
+  }
+}
+
+// Forward messages from content script to offscreen document
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'EVALUATE_FEN') {
+    setupOffscreenDocument('offscreen.html').then(() => {
+      chrome.runtime.sendMessage({
+        target: 'offscreen',
+        type: 'EVALUATE_FEN',
+        fen: message.fen
+      });
+    });
+    return true; // async response not strictly needed here if offscreen broadcasts back
+  }
+  
+  if (message.target === 'content') {
+    // Forward from offscreen to content script
+    // We send it to the active tab
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0]) {
+        chrome.tabs.sendMessage(tabs[0].id, message);
+      }
+    });
+  }
+});

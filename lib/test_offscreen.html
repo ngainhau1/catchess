@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<body>
+<script>
+console.log("Loading worker...");
+let stockfish = new Worker('stockfish.js');
+stockfish.onmessage = function(e) {
+    console.log("WORKER OUTPUT:", e.data);
+};
+stockfish.onerror = function(e) {
+    console.log("WORKER ERROR:", e.message);
+};
+stockfish.postMessage('uci');
+</script>
+</body>
+</html>

@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "CatChess - Best Move Suggester",
+  "version": "1.0",
+  "description": "Suggests the best next move on Chess.com using Stockfish.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "offscreen"
+  ],
+  "host_permissions": [
+    "*://*.chess.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.chess.com/*"],
+      "js": ["scraper.js", "ui.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "lib/stockfish.js",
+        "lib/stockfish.wasm",
+        "lib/stockfish.wasm.js",
+        "offscreen.html"
+      ],
+      "matches": ["*://*.chess.com/*"]
+    }
+  ]
+}

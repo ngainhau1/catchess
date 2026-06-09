@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<body>
+<script src="stockfish.js"></script>
+<script>
+console.log("Stockfish type:", typeof Stockfish);
+if (typeof Stockfish !== 'undefined') {
+    let sf = Stockfish();
+    sf.onmessage = function(e) {
+        console.log("SF OUTPUT:", e);
+    };
+    sf.postMessage('uci');
+}
+</script>
+</body>
+</html>
