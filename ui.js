@@ -222,11 +222,16 @@ function updateEvalBar(scoreObj) {
 chrome.runtime.onMessage.addListener((message) => {
     if (message.target === 'content') {
         if (message.type === 'BEST_MOVE') {
-            console.log('[CatChess] Best move:', message.move);
-            drawArrow(message.move);
+            if (message.isUserTurn) {
+                console.log('[UI] Best move (YOUR turn):', message.move);
+                drawArrow(message.move);
+            } else {
+                console.log('[UI] Opponent turn — clearing arrow. (Engine found:', message.move, ')');
+                clearArrows();
+            }
         }
         if (message.type === 'REVIEW_MOVE') {
-            console.log('[CatChess] Move review:', message.classification, 'at', message.square);
+            console.log('[UI] Your move rated:', message.classification, 'at', message.square);
             drawReviewIcon(message.square, message.classification);
         }
         if (message.type === 'EVAL_UPDATE') {

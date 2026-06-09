@@ -7,7 +7,6 @@ async function setupOffscreenDocument(path) {
     contextTypes: ['OFFSCREEN_DOCUMENT'],
     documentUrls: [offscreenUrl]
   });
-
   if (existingContexts.length > 0) return;
 
   if (creating) {
@@ -27,14 +26,16 @@ async function setupOffscreenDocument(path) {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   try {
     if (message.type === 'EVALUATE_FEN') {
-      // Forward ALL fields to offscreen (fen + lastMoveTarget + lastMoveColor)
+      // Forward ALL fields to offscreen
       setupOffscreenDocument('offscreen.html').then(() => {
         chrome.runtime.sendMessage({
           target: 'offscreen',
           type: 'EVALUATE_FEN',
           fen: message.fen,
           lastMoveTarget: message.lastMoveTarget,
-          lastMoveColor: message.lastMoveColor
+          lastMoveColor: message.lastMoveColor,
+          userColor: message.userColor,
+          isUserTurn: message.isUserTurn
         });
       });
     }
