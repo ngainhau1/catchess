@@ -61,10 +61,8 @@ function getBoardFEN() {
         fenRows.push(rowStr);
     }
 
-    const lastMove = getLastMoveInfo(pieces);
-    const activeColor = lastMove ? (lastMove.color === 'w' ? 'b' : 'w') : 'w';
-    const fen = fenRows.join('/') + ` ${activeColor} KQkq - 0 1`;
-    return { fen, pieces, lastMove };
+    const placement = fenRows.join('/');
+    return { placement, pieces };
 }
 
 function getLastMoveInfo(pieces) {
@@ -104,34 +102,51 @@ function getLastMoveInfo(pieces) {
     return targetSquare ? { targetSquare, color } : null;
 }
 
+let lastPlacement = '';
 let lastFen = '';
-let pendingFenData = null;
+let pendingPlacement = null;
+let currentActiveColor = 'w';
+let currentLastMove = null;
 
 // Use setInterval to survive SPA navigations and stabilize animations
 setInterval(() => {
     try {
         const data = getBoardFEN();
-        if (data && data.fen) {
-            if (pendingFenData && pendingFenData.fen === data.fen) {
-                // FEN is stable for 2 consecutive ticks
-                if (data.fen !== lastFen) {
-                    console.log(`[Scraper] New stable state. FEN: ${data.fen}`);
-                    console.log(`[Scraper] Last Move Object:`, data.lastMove);
-                    lastFen = data.fen;
+        if (data && data.placement) {
+            if (pendingPlacement === data.placement) {
+                // Piece placement is stable for 2 consecutive ticks
+                if (data.placement !== lastPlacement) {
+                    console.log(`[Scraper] Board placement changed! Recalculating turn.`);
+                    
+                    const lastMove = getLastMoveInfo(data.pieces);
+                    if (lastMove) {
+                        currentActiveColor = lastMove.color === 'w' ? 'b' : 'w';
+                        currentLastMove = lastMove;
+                    } else if (data.placement === 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR') {
+                        currentActiveColor = 'w';
+                        currentLastMove = null;
+                    }
+                    
+                    const fen = data.placement + ` ${currentActiveColor} KQkq - 0 1`;
+                    console.log(`[Scraper] New stable state. FEN: ${fen}`);
+                    console.log(`[Scraper] Last Move Object:`, currentLastMove);
+                    
+                    lastPlacement = data.placement;
+                    lastFen = fen;
                     
                     chrome.runtime.sendMessage({
                         type: 'EVALUATE_FEN',
-                        fen: data.fen,
-                        lastMoveTarget: data.lastMove ? data.lastMove.targetSquare : null,
-                        lastMoveColor: data.lastMove ? data.lastMove.color : null
+                        fen: fen,
+                        lastMoveTarget: currentLastMove ? currentLastMove.targetSquare : null,
+                        lastMoveColor: currentLastMove ? currentLastMove.color : null
                     });
                 }
             } else {
-                pendingFenData = data;
+                pendingPlacement = data.placement;
             }
         } else {
-            if (data && !data.fen) {
-                console.warn('[Scraper] Could not extract FEN from board. Missing pieces?');
+            if (data && !data.placement) {
+                console.warn('[Scraper] Could not extract placement from board. Missing pieces?');
             }
         }
     } catch (err) {

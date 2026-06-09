@@ -39,7 +39,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           fen: message.fen
         });
       });
-      return true; // async response not strictly needed here if offscreen broadcasts back
+      // No longer returning true to prevent "message channel closed" warnings
     }
 
     if (message.target === 'content') {
