@@ -73,6 +73,7 @@ function getCoords(squareStr, isFlipped) {
 }
 
 function drawArrow(move) {
+    if (!chrome.storage) return; // Fail gracefully
     chrome.storage.sync.get({showArrow: true}, (items) => {
         if (!items.showArrow) return;
         
@@ -106,6 +107,7 @@ function drawArrow(move) {
 }
 
 function drawReviewIcon(targetSquare, classification) {
+    if (!chrome.storage) return; // Fail gracefully
     chrome.storage.sync.get({showIcons: true}, (items) => {
         if (!items.showIcons) return;
 
@@ -136,6 +138,7 @@ function drawReviewIcon(targetSquare, classification) {
 }
 
 function updateEvalBar(scoreObj) {
+    if (!chrome.storage) return; // Fail gracefully
     chrome.storage.sync.get({showEval: true}, (items) => {
         let evalBox = document.getElementById('catchess-eval');
         
@@ -185,18 +188,20 @@ chrome.runtime.onMessage.addListener((message) => {
 });
 
 // Immediately clear UI when toggled off
-chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'sync') {
-        const ctx = getOverlay();
-        if (changes.showArrow && !changes.showArrow.newValue && ctx) {
-            ctx.overlay.querySelectorAll('line').forEach(el => el.remove());
+if (chrome.storage && chrome.storage.onChanged) {
+    chrome.storage.onChanged.addListener((changes, area) => {
+        if (area === 'sync') {
+            const ctx = getOverlay();
+            if (changes.showArrow && !changes.showArrow.newValue && ctx) {
+                ctx.overlay.querySelectorAll('line').forEach(el => el.remove());
+            }
+            if (changes.showIcons && !changes.showIcons.newValue && ctx) {
+                ctx.overlay.querySelectorAll('.review-icon').forEach(el => el.remove());
+            }
+            if (changes.showEval && !changes.showEval.newValue) {
+                const evalBox = document.getElementById('catchess-eval');
+                if (evalBox) evalBox.remove();
+            }
         }
-        if (changes.showIcons && !changes.showIcons.newValue && ctx) {
-            ctx.overlay.querySelectorAll('.review-icon').forEach(el => el.remove());
-        }
-        if (changes.showEval && !changes.showEval.newValue) {
-            const evalBox = document.getElementById('catchess-eval');
-            if (evalBox) evalBox.remove();
-        }
-    }
-});
+    });
+}

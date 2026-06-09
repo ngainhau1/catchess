@@ -140,6 +140,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 function toggleSetting(key, name) {
+    if (!chrome.storage) return; // Fail gracefully
     chrome.storage.sync.get({[key]: true}, (items) => {
         const newValue = !items[key];
         chrome.storage.sync.set({[key]: newValue}, () => {

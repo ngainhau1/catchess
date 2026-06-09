@@ -64,12 +64,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 // Listen for storage changes and forward to offscreen
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'sync' && changes.engineLevel) {
-    chrome.runtime.sendMessage({
-      target: 'offscreen',
-      type: 'UPDATE_ENGINE_LEVEL',
-      level: changes.engineLevel.newValue
-    });
-  }
-});
+if (chrome.storage && chrome.storage.onChanged) {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'sync' && changes.engineLevel) {
+      chrome.runtime.sendMessage({
+        target: 'offscreen',
+        type: 'UPDATE_ENGINE_LEVEL',
+        level: changes.engineLevel.newValue
+      });
+    }
+  });
+} else {
+  console.error('[CatChess] CRITICAL ERROR: chrome.storage is missing. Please go to chrome://extensions and click the RELOAD button.');
+}
