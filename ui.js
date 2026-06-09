@@ -73,67 +73,99 @@ function getCoords(squareStr, isFlipped) {
 }
 
 function drawArrow(move) {
-    if (!move || move.length < 4) return;
-    const ctx = getOverlay();
-    if (!ctx) return;
+    chrome.storage.sync.get({showArrow: true}, (items) => {
+        if (!items.showArrow) return;
+        
+        if (!move || move.length < 4) return;
+        const ctx = getOverlay();
+        if (!ctx) return;
 
-    const isFlipped = ctx.boardElement.classList.contains('flipped');
-    const from = getCoords(move.substring(0, 2), isFlipped);
-    const to = getCoords(move.substring(2, 4), isFlipped);
+        const isFlipped = ctx.boardElement.classList.contains('flipped');
+        const from = getCoords(move.substring(0, 2), isFlipped);
+        const to = getCoords(move.substring(2, 4), isFlipped);
 
-    // Clear existing arrows
-    const existingLines = ctx.overlay.querySelectorAll('line');
-    existingLines.forEach(line => line.remove());
+        // Clear existing arrows
+        const existingLines = ctx.overlay.querySelectorAll('line');
+        existingLines.forEach(line => line.remove());
 
-    if (!from || !to) return;
+        if (!from || !to) return;
 
-    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    line.setAttribute('x1', `${from.x}%`);
-    line.setAttribute('y1', `${from.y}%`);
-    line.setAttribute('x2', `${to.x}%`);
-    line.setAttribute('y2', `${to.y}%`);
-    line.setAttribute('stroke', 'rgba(152, 251, 152, 0.9)'); // Màu xanh nhạt tươi
-    line.setAttribute('stroke-width', '1.2%'); // Mỏng hơn
-    line.setAttribute('stroke-linecap', 'round');
-    line.setAttribute('marker-end', 'url(#arrowhead)');
-    line.setAttribute('filter', 'url(#shadow)');
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', `${from.x}%`);
+        line.setAttribute('y1', `${from.y}%`);
+        line.setAttribute('x2', `${to.x}%`);
+        line.setAttribute('y2', `${to.y}%`);
+        line.setAttribute('stroke', 'rgba(152, 251, 152, 0.9)'); // Màu xanh nhạt tươi
+        line.setAttribute('stroke-width', '1.2%'); // Mỏng hơn
+        line.setAttribute('stroke-linecap', 'round');
+        line.setAttribute('marker-end', 'url(#arrowhead)');
+        line.setAttribute('filter', 'url(#shadow)');
 
-    ctx.overlay.appendChild(line);
+        ctx.overlay.appendChild(line);
+    });
 }
 
 function drawReviewIcon(targetSquare, classification) {
-    const ctx = getOverlay();
-    if (!ctx || !ICONS[classification]) return;
+    chrome.storage.sync.get({showIcons: true}, (items) => {
+        if (!items.showIcons) return;
 
-    const isFlipped = ctx.boardElement.classList.contains('flipped');
-    const coords = getCoords(targetSquare, isFlipped);
-    if (!coords) return;
+        const ctx = getOverlay();
+        if (!ctx || !ICONS[classification]) return;
 
-    // Remove existing review icons
-    const existingIcons = ctx.overlay.querySelectorAll('.review-icon');
-    existingIcons.forEach(icon => icon.remove());
+        const isFlipped = ctx.boardElement.classList.contains('flipped');
+        const coords = getCoords(targetSquare, isFlipped);
+        if (!coords) return;
 
-    // Create SVG group for the icon
-    // Place at the top right of the target square
-    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    g.setAttribute('class', 'review-icon');
-    
-    // Position: shift up and right from center. Square is 12.5% wide.
-    // X shift: + 3.125%, Y shift: - 3.125%
-    const posX = coords.x + 3.125;
-    const posY = coords.y - 3.125;
-    
-    g.setAttribute('transform', `translate(${posX} ${posY}) scale(0.04)`);
-    // Scale 0.04 means 100px box becomes 4% of board width
-    
-    // Add shadow
-    g.setAttribute('filter', 'url(#shadow)');
+        // Remove existing review icons
+        const existingIcons = ctx.overlay.querySelectorAll('.review-icon');
+        existingIcons.forEach(icon => icon.remove());
 
-    // Render inner SVG
-    g.innerHTML = ICONS[classification];
-    
-    ctx.overlay.appendChild(g);
+        // Create SVG group for the icon
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        g.setAttribute('class', 'review-icon');
+        
+        const posX = coords.x + 3.125;
+        const posY = coords.y - 3.125;
+        
+        g.setAttribute('transform', `translate(${posX} ${posY}) scale(0.04)`);
+        g.setAttribute('filter', 'url(#shadow)');
+        g.innerHTML = ICONS[classification];
+        
+        ctx.overlay.appendChild(g);
+    });
 }
+
+function updateEvalBar(scoreObj) {
+    chrome.storage.sync.get({showEval: true}, (items) => {
+        let evalBox = document.getElementById('catchess-eval');
+        
+        if (!items.showEval) {
+            if (evalBox) evalBox.remove();
+            return;
+        }
+
+        const boardElement = document.querySelector('wc-chess-board') || document.querySelector('.board');
+        if (!boardElement) return;
+
+        if (!evalBox) {
+            evalBox = document.createElement('div');
+            evalBox.id = 'catchess-eval';
+            evalBox.style.cssText = 'position:absolute; top:5px; right:5px; background:rgba(0,0,0,0.7); color:white; padding:5px 10px; border-radius:4px; font-family:sans-serif; font-size:14px; z-index:10000; font-weight:bold; border: 1px solid #444;';
+            boardElement.appendChild(evalBox);
+        }
+
+        let text = 'Eval: ';
+        if (scoreObj.type === 'mate') {
+            text += 'M' + Math.abs(scoreObj.value);
+        } else {
+            text += (scoreObj.value > 0 ? '+' : '') + (scoreObj.value / 100).toFixed(2);
+        }
+        text += ` (d${scoreObj.depth})`;
+        
+        evalBox.textContent = text;
+    });
+}
+
 
 // Listen for messages from background script
 chrome.runtime.onMessage.addListener((message) => {
@@ -145,6 +177,26 @@ chrome.runtime.onMessage.addListener((message) => {
         if (message.type === 'REVIEW_MOVE') {
             console.log('[CatChess] Move review:', message.classification, 'at', message.square);
             drawReviewIcon(message.square, message.classification);
+        }
+        if (message.type === 'EVAL_UPDATE') {
+            updateEvalBar(message.data);
+        }
+    }
+});
+
+// Immediately clear UI when toggled off
+chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'sync') {
+        const ctx = getOverlay();
+        if (changes.showArrow && !changes.showArrow.newValue && ctx) {
+            ctx.overlay.querySelectorAll('line').forEach(el => el.remove());
+        }
+        if (changes.showIcons && !changes.showIcons.newValue && ctx) {
+            ctx.overlay.querySelectorAll('.review-icon').forEach(el => el.remove());
+        }
+        if (changes.showEval && !changes.showEval.newValue) {
+            const evalBox = document.getElementById('catchess-eval');
+            if (evalBox) evalBox.remove();
         }
     }
 });

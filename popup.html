@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>CatChess Settings</title>
+    <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+    <div class="container">
+        <h2>CatChess v3</h2>
+        
+        <div class="setting-item">
+            <span>Show Arrows (Alt+A)</span>
+            <label class="switch">
+                <input type="checkbox" id="showArrow" checked>
+                <span class="slider"></span>
+            </label>
+        </div>
+
+        <div class="setting-item">
+            <span>Show Icons (Alt+I)</span>
+            <label class="switch">
+                <input type="checkbox" id="showIcons" checked>
+                <span class="slider"></span>
+            </label>
+        </div>
+
+        <div class="setting-item">
+            <span>Show Eval Bar (Alt+E)</span>
+            <label class="switch">
+                <input type="checkbox" id="showEval" checked>
+                <span class="slider"></span>
+            </label>
+        </div>
+
+        <div class="setting-group">
+            <label for="engineLevel">Engine Skill Level (0-20): <span id="levelValue">20</span></label>
+            <input type="range" id="engineLevel" min="0" max="20" value="20">
+            <small>Lower value = faster, weaker suggestions.</small>
+        </div>
+    </div>
+    <script src="popup.js"></script>
+</body>
+</html>

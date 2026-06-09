@@ -15,15 +15,25 @@ let currentScore = 0; // centipawns
 stockfish.onmessage = function(event) {
     const line = event.data;
     
-    // Parse score
-    const scoreMatch = line.match(/score (cp|mate) (-?\d+)/);
+    const scoreMatch = line.match(/info depth (\d+).*score (cp|mate) (-?\d+)/);
     if (scoreMatch) {
-        let val = parseInt(scoreMatch[2], 10);
-        if (scoreMatch[1] === 'mate') {
+        let depth = parseInt(scoreMatch[1], 10);
+        let type = scoreMatch[2];
+        let val = parseInt(scoreMatch[3], 10);
+        
+        let scoreVal = val;
+        if (type === 'mate') {
             // Mate in X is worth a lot of centipawns
-            val = val > 0 ? 30000 - val : -30000 - val;
+            scoreVal = val > 0 ? 30000 - val : -30000 - val;
         }
-        currentScore = val;
+        currentScore = scoreVal;
+
+        // Send eval update
+        chrome.runtime.sendMessage({
+            target: 'content',
+            type: 'EVAL_UPDATE',
+            data: { value: val, type: type, depth: depth }
+        });
     }
 
     if (line && line.startsWith('bestmove')) {
@@ -77,3 +87,18 @@ chrome.runtime.onMessage.addListener((message) => {
         stockfish.postMessage('go depth 14');
     }
 });
+
+// Setup engine level
+function updateEngineLevel() {
+    chrome.storage.sync.get({engineLevel: 20}, (items) => {
+        stockfish.postMessage(`setoption name Skill Level value ${items.engineLevel}`);
+    });
+}
+
+chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'sync' && changes.engineLevel) {
+        updateEngineLevel();
+    }
+});
+
+updateEngineLevel();

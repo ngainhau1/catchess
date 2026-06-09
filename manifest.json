@@ -6,8 +6,12 @@
   "permissions": [
     "activeTab",
     "scripting",
-    "offscreen"
+    "offscreen",
+    "storage"
   ],
+  "action": {
+    "default_popup": "popup.html"
+  },
   "host_permissions": [
     "*://*.chess.com/*"
   ],

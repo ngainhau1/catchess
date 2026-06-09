@@ -106,22 +106,64 @@ function getLastMoveInfo(pieces) {
 }
 
 let lastFen = '';
+let pendingFenData = null;
 
-// Use setInterval instead of MutationObserver to survive SPA navigations
-// and board element replacements.
+// Use setInterval to survive SPA navigations and stabilize animations
 setInterval(() => {
     const data = getBoardFEN();
-    if (data && data.fen && data.fen !== lastFen) {
-        console.log('[CatChess] Found new board state:', data.fen);
-        lastFen = data.fen;
-        
-        const lastMove = getLastMoveInfo(data.pieces);
-        
-        chrome.runtime.sendMessage({
-            type: 'EVALUATE_FEN',
-            fen: data.fen,
-            lastMoveTarget: lastMove ? lastMove.targetSquare : null,
-            lastMoveColor: lastMove ? lastMove.color : null
-        });
+    if (data && data.fen) {
+        if (pendingFenData && pendingFenData.fen === data.fen) {
+            // FEN is stable for 2 consecutive ticks
+            if (data.fen !== lastFen) {
+                console.log('[CatChess] Found new stable board state:', data.fen);
+                lastFen = data.fen;
+                
+                const lastMove = getLastMoveInfo(data.pieces);
+                
+                chrome.runtime.sendMessage({
+                    type: 'EVALUATE_FEN',
+                    fen: data.fen,
+                    lastMoveTarget: lastMove ? lastMove.targetSquare : null,
+                    lastMoveColor: lastMove ? lastMove.color : null
+                });
+            }
+        } else {
+            pendingFenData = data;
+        }
     }
-}, 500);
+}, 300);
+
+// Keyboard Shortcuts
+document.addEventListener('keydown', (e) => {
+    if (e.altKey) {
+        if (e.key.toLowerCase() === 'a') toggleSetting('showArrow', 'Arrows');
+        if (e.key.toLowerCase() === 'i') toggleSetting('showIcons', 'Review Icons');
+        if (e.key.toLowerCase() === 'e') toggleSetting('showEval', 'Eval Bar');
+    }
+});
+
+function toggleSetting(key, name) {
+    chrome.storage.sync.get({[key]: true}, (items) => {
+        const newValue = !items[key];
+        chrome.storage.sync.set({[key]: newValue}, () => {
+            showToast(`${name}: ${newValue ? 'ON' : 'OFF'}`);
+        });
+    });
+}
+
+function showToast(msg) {
+    let toast = document.getElementById('catchess-toast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'catchess-toast';
+        toast.style.cssText = 'position:fixed; bottom:20px; right:20px; background:#96bc4b; color:#fff; padding:10px 20px; border-radius:5px; z-index:999999; font-family:sans-serif; font-weight:bold; box-shadow: 0 4px 6px rgba(0,0,0,0.3); transition: opacity 0.3s; pointer-events:none;';
+        document.body.appendChild(toast);
+    }
+    toast.textContent = msg;
+    toast.style.opacity = '1';
+    
+    clearTimeout(toast.timeoutId);
+    toast.timeoutId = setTimeout(() => {
+        toast.style.opacity = '0';
+    }, 2000);
+}
