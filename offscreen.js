@@ -1,39 +1,24 @@
 // offscreen.js
 
 let stockfish = new Worker('lib/stockfish.js');
-
 stockfish.postMessage('uci');
 stockfish.postMessage('isready');
 stockfish.postMessage('setoption name MultiPV value 1');
 
-let currentFen = '';
-let currentTarget = null;
-let currentColor = null;
-let currentUserColor = null;
-let currentIsUserTurn = false;
+// ─── Evaluation state, keyed by evalId ────────────────────────
+let currentEvalId = 0;
+let evalMeta = {}; // { evalId → { fen, lastMoveTarget, lastMoveColor, userColor } }
 
 let previousScore = 0;
 let currentScore = 0;
-let engineReady = false;
 let evalTimeoutId = null;
-
-// Track which FEN we expect results for, to ignore stale responses
-let expectedFen = '';
 
 stockfish.onmessage = function(event) {
     const line = event.data;
 
-    if (line === 'readyok') {
-        engineReady = true;
-        console.log('[Engine] Ready.');
-        return;
-    }
+    if (line === 'readyok' || line === 'uciok') return;
 
-    if (line === 'uciok') {
-        console.log('[Engine] UCI initialized.');
-        return;
-    }
-
+    // Parse score from intermediate depth reports
     const scoreMatch = line.match(/info depth (\d+).*score (cp|mate) (-?\d+)/);
     if (scoreMatch) {
         let depth = parseInt(scoreMatch[1], 10);
@@ -46,7 +31,8 @@ stockfish.onmessage = function(event) {
         }
 
         // Normalize to White's perspective
-        if (currentFen.includes(' b ')) {
+        const meta = evalMeta[currentEvalId];
+        if (meta && meta.fen.includes(' b ')) {
             scoreVal = -scoreVal;
         }
 
@@ -60,6 +46,7 @@ stockfish.onmessage = function(event) {
         });
     }
 
+    // Parse bestmove
     if (line && line.startsWith('bestmove')) {
         if (evalTimeoutId) {
             clearTimeout(evalTimeoutId);
@@ -67,30 +54,32 @@ stockfish.onmessage = function(event) {
         }
 
         const match = line.match(/bestmove\s+([a-h][1-8][a-h][1-8][qrbn]?)/);
-        if (!match || !match[1]) {
-            console.warn('[Engine] bestmove with no valid move:', line);
+        if (!match || !match[1]) return;
+
+        const bestMove = match[1];
+        const meta = evalMeta[currentEvalId];
+
+        if (!meta) {
+            console.warn('[Engine] bestmove but no meta for evalId:', currentEvalId);
             return;
         }
 
-        const bestMove = match[1];
-        console.log(`[Engine] bestmove: ${bestMove} | isUserTurn: ${currentIsUserTurn}`);
+        console.log(`[Engine] #${currentEvalId} bestmove: ${bestMove}`);
 
-        // Send best move with isUserTurn flag
+        // Always send as user's turn (we only evaluate user's turn now)
         chrome.runtime.sendMessage({
             target: 'content',
             type: 'BEST_MOVE',
-            move: bestMove,
-            isUserTurn: currentIsUserTurn
+            evalId: currentEvalId,
+            move: bestMove
         });
 
-        // Classify the last move (the move that led to this position)
-        if (currentColor && currentTarget) {
-            let diff = 0;
-            if (currentColor === 'w') {
-                diff = currentScore - previousScore;
-            } else {
-                diff = previousScore - currentScore;
-            }
+        // Classify the opponent's last move that led to this position
+        if (meta.lastMoveTarget && meta.lastMoveColor) {
+            // Score diff: how much did the position change since last evaluation?
+            let diff = currentScore - previousScore;
+            // If user is black, invert the diff perspective
+            if (meta.userColor === 'b') diff = -diff;
 
             let classification = 'good';
             if (diff < -300) classification = 'blunder';
@@ -101,47 +90,55 @@ stockfish.onmessage = function(event) {
             else if (diff > 10) classification = 'excellent';
             else if (diff > -10) classification = 'best';
 
-            // Only show review icon for the USER's own moves
-            const isUserMove = (currentColor === currentUserColor);
-            console.log(`[Engine] ${currentColor}'s move at ${currentTarget}: ${classification} (diff=${diff}, isUserMove=${isUserMove})`);
+            console.log(`[Engine] #${currentEvalId} classify: ${classification} (diff=${diff})`);
 
-            if (isUserMove) {
-                chrome.runtime.sendMessage({
-                    target: 'content',
-                    type: 'REVIEW_MOVE',
-                    square: currentTarget,
-                    classification: classification
-                });
-            }
+            chrome.runtime.sendMessage({
+                target: 'content',
+                type: 'REVIEW_MOVE',
+                evalId: currentEvalId,
+                square: meta.lastMoveTarget,
+                classification: classification
+            });
         }
 
         previousScore = currentScore;
+
+        // Cleanup old meta entries (keep only last 5)
+        const ids = Object.keys(evalMeta).map(Number).sort((a, b) => a - b);
+        while (ids.length > 5) {
+            delete evalMeta[ids.shift()];
+        }
     }
 };
 
+// ─── Message listener ─────────────────────────────────────────
 chrome.runtime.onMessage.addListener((message) => {
     try {
         if (message.target === 'offscreen') {
             if (message.type === 'EVALUATE_FEN') {
-                currentFen = message.fen;
-                currentTarget = message.lastMoveTarget || null;
-                currentColor = message.lastMoveColor || null;
-                currentUserColor = message.userColor || null;
-                currentIsUserTurn = message.isUserTurn || false;
+                const id = message.evalId;
+                currentEvalId = id;
 
-                console.log(`[Engine] Evaluating: ${message.fen.substring(0, 40)}... isUserTurn=${currentIsUserTurn}`);
+                // Store metadata for this evaluation
+                evalMeta[id] = {
+                    fen: message.fen,
+                    lastMoveTarget: message.lastMoveTarget,
+                    lastMoveColor: message.lastMoveColor,
+                    userColor: message.userColor
+                };
 
-                // Just send position + go. Do NOT send 'stop' — it breaks stockfish.js
+                console.log(`[Engine] #${id} go movetime 800: ${message.fen.substring(0, 50)}...`);
+
                 stockfish.postMessage('position fen ' + message.fen);
-                stockfish.postMessage('go depth 12');
+                stockfish.postMessage('go movetime 800');
 
-                // Safety timeout — only fires if engine is truly stuck
+                // Safety timeout (only if engine truly stuck)
                 if (evalTimeoutId) clearTimeout(evalTimeoutId);
                 evalTimeoutId = setTimeout(() => {
-                    console.error('[Engine] Timeout! Engine stuck. Sending stop.');
+                    console.error(`[Engine] #${id} Timeout! Sending stop.`);
                     stockfish.postMessage('stop');
                     evalTimeoutId = null;
-                }, 5000);
+                }, 2000);
 
             } else if (message.type === 'UPDATE_ENGINE_LEVEL') {
                 stockfish.postMessage(`setoption name Skill Level value ${message.level}`);

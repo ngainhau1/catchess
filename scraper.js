@@ -1,8 +1,9 @@
 // scraper.js
 
+let evalCounter = 0;
+
 /**
  * Detects which color the user is playing by checking board orientation.
- * Chess.com flips the board when the user plays Black.
  */
 function getUserColor() {
     const board = document.querySelector('wc-chess-board');
@@ -102,6 +103,7 @@ function inferCastling(board) {
 // ─── State ────────────────────────────────────────────────────
 let lastPlacement = '';
 let pendingPlacement = null;
+let wasUserTurn = false;
 
 // ─── Main polling loop ───────────────────────────────────────
 setInterval(() => {
@@ -109,7 +111,7 @@ setInterval(() => {
         const data = getBoardPlacement();
         if (!data || !data.placement) return;
 
-        // Debounce: require two identical reads in a row
+        // Debounce: require two identical reads
         if (pendingPlacement !== data.placement) {
             pendingPlacement = data.placement;
             return;
@@ -124,30 +126,43 @@ setInterval(() => {
             activeColor = lastMove.color === 'w' ? 'b' : 'w';
         }
 
-        const castling = inferCastling(data.board);
-        const fen = `${data.placement} ${activeColor} ${castling} - 0 1`;
         const userColor = getUserColor();
         const isUserTurn = (activeColor === userColor);
 
-        console.log(`[Scraper] FEN: ${fen}`);
-        console.log(`[Scraper] User: ${userColor}, Turn: ${activeColor}, isUserTurn: ${isUserTurn}, LastMove:`, lastMove);
-
         lastPlacement = data.placement;
 
-        // ALWAYS evaluate — engine needs to see every position for accurate scoring
-        // The UI will decide what to show based on isUserTurn
-        chrome.runtime.sendMessage({
-            type: 'EVALUATE_FEN',
-            fen: fen,
-            lastMoveTarget: lastMove ? lastMove.targetSquare : null,
-            lastMoveColor: lastMove ? lastMove.color : null,
-            userColor: userColor,
-            isUserTurn: isUserTurn
-        });
+        if (isUserTurn) {
+            // It's the user's turn → evaluate this position
+            const castling = inferCastling(data.board);
+            const fen = `${data.placement} ${activeColor} ${castling} - 0 1`;
+            evalCounter++;
+            const id = evalCounter;
+
+            console.log(`[Scraper] #${id} YOUR TURN. FEN: ${fen}`);
+
+            chrome.runtime.sendMessage({
+                type: 'EVALUATE_FEN',
+                evalId: id,
+                fen: fen,
+                lastMoveTarget: lastMove ? lastMove.targetSquare : null,
+                lastMoveColor: lastMove ? lastMove.color : null,
+                userColor: userColor
+            });
+            wasUserTurn = true;
+        } else {
+            // Opponent's turn → just tell UI to clear the arrow
+            if (wasUserTurn) {
+                console.log(`[Scraper] Opponent moved. Clearing arrow.`);
+                chrome.runtime.sendMessage({
+                    type: 'OPPONENT_MOVED'
+                });
+                wasUserTurn = false;
+            }
+        }
     } catch (err) {
         console.error('[Scraper] ERROR:', err);
     }
-}, 300);
+}, 250);
 
 // ─── Keyboard Shortcuts ──────────────────────────────────────
 document.addEventListener('keydown', (e) => {
