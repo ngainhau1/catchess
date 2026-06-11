@@ -1,19 +1,15 @@
-// scraper.js
+// scraper.js — v5 Hybrid (MutationObserver)
 
 let evalCounter = 0;
 
-/**
- * Detects which color the user is playing by checking board orientation.
- */
+// ─── Utility functions (unchanged from v4) ────────────────────
+
 function getUserColor() {
     const board = document.querySelector('wc-chess-board');
     if (!board) return 'w';
     return board.classList.contains('flipped') ? 'b' : 'w';
 }
 
-/**
- * Parses the Chess.com board and generates a FEN placement string.
- */
 function getBoardPlacement() {
     const pieces = document.querySelectorAll('.piece');
     if (!pieces || pieces.length === 0) return null;
@@ -52,9 +48,6 @@ function getBoardPlacement() {
     return { placement: fenRows.join('/'), pieces, board };
 }
 
-/**
- * Detects the last move via Chess.com's highlight squares.
- */
 function getLastMoveInfo(pieces) {
     const highlights = document.querySelectorAll('.highlight');
     if (!highlights || highlights.length === 0) return null;
@@ -84,9 +77,6 @@ function getLastMoveInfo(pieces) {
     return targetSquare ? { targetSquare, color } : null;
 }
 
-/**
- * Infer castling rights from piece positions.
- */
 function inferCastling(board) {
     let castling = '';
     if (board[0][4] === 'K') {
@@ -100,24 +90,17 @@ function inferCastling(board) {
     return castling || '-';
 }
 
-// ─── State ────────────────────────────────────────────────────
+// ─── Board processing (core logic, same as v4) ───────────────
+
 let lastPlacement = '';
-let pendingPlacement = null;
 let wasUserTurn = false;
 
-// ─── Main polling loop ───────────────────────────────────────
-setInterval(() => {
+function processBoard() {
     try {
         const data = getBoardPlacement();
         if (!data || !data.placement) return;
 
-        // Debounce: require two identical reads
-        if (pendingPlacement !== data.placement) {
-            pendingPlacement = data.placement;
-            return;
-        }
-
-        // Only fire when placement actually changes
+        // Only process when placement actually changed
         if (data.placement === lastPlacement) return;
 
         const lastMove = getLastMoveInfo(data.pieces);
@@ -132,7 +115,6 @@ setInterval(() => {
         lastPlacement = data.placement;
 
         if (isUserTurn) {
-            // It's the user's turn → evaluate this position
             const castling = inferCastling(data.board);
             const fen = `${data.placement} ${activeColor} ${castling} - 0 1`;
             evalCounter++;
@@ -150,21 +132,83 @@ setInterval(() => {
             });
             wasUserTurn = true;
         } else {
-            // Opponent's turn → just tell UI to clear the arrow
             if (wasUserTurn) {
-                console.log(`[Scraper] Opponent moved. Clearing arrow.`);
-                chrome.runtime.sendMessage({
-                    type: 'OPPONENT_MOVED'
-                });
+                console.log('[Scraper] Opponent moved. Clearing arrow.');
+                chrome.runtime.sendMessage({ type: 'OPPONENT_MOVED' });
                 wasUserTurn = false;
             }
         }
     } catch (err) {
         console.error('[Scraper] ERROR:', err);
     }
-}, 250);
+}
+
+// ─── MutationObserver (replaces setInterval) ──────────────────
+
+let debounceTimer = null;
+let boardObserver = null;
+
+function scheduleBoardCheck() {
+    if (debounceTimer) return; // Already scheduled, skip
+    debounceTimer = setTimeout(() => {
+        debounceTimer = null;
+        processBoard();
+    }, 100);
+}
+
+function initObserver() {
+    const board = document.querySelector('wc-chess-board');
+    if (!board) return false;
+
+    // Disconnect previous observer if exists (e.g. after SPA navigation)
+    if (boardObserver) {
+        boardObserver.disconnect();
+    }
+
+    boardObserver = new MutationObserver((mutations) => {
+        // Quick filter: only care about piece/highlight changes or child additions
+        for (const m of mutations) {
+            if (m.type === 'childList') {
+                // Pieces added/removed (captures, promotions, new game)
+                scheduleBoardCheck();
+                return;
+            }
+            if (m.type === 'attributes' && m.target.classList) {
+                const cl = m.target.classList;
+                if (cl.contains('piece') || cl.contains('highlight')) {
+                    scheduleBoardCheck();
+                    return;
+                }
+            }
+        }
+    });
+
+    boardObserver.observe(board, {
+        attributes: true,
+        attributeFilter: ['class'],
+        childList: true,
+        subtree: true
+    });
+
+    return true;
+}
+
+// ─── Startup: wait for board to exist ─────────────────────────
+
+function waitForBoard() {
+    if (initObserver()) {
+        console.log('[Scraper] ✓ MutationObserver attached to wc-chess-board');
+        processBoard(); // Process initial board state
+        return;
+    }
+    // Board not yet rendered (SPA navigation) — retry
+    setTimeout(waitForBoard, 1000);
+}
+
+waitForBoard();
 
 // ─── Keyboard Shortcuts ──────────────────────────────────────
+
 document.addEventListener('keydown', (e) => {
     if (e.altKey) {
         if (e.key.toLowerCase() === 'a') toggleSetting('showArrow', 'Arrows');
